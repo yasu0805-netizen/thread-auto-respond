@@ -44,11 +44,13 @@ export function DataManagement() {
   
   const [connection, setConnection] = useState<SpreadsheetConnection>({
     id: 'main-spreadsheet',
-    url: 'https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit',
-    lastSync: '2025-09-28T10:30:00+02:00',
-    status: 'CONNECTED',
+    url: '',
+    lastSync: '',
+    status: 'ERROR',
     sheets: ['Settings', 'Reservation Input', 'Execution Log', 'Personas']
   });
+
+  const [gasWebAppUrl, setGasWebAppUrl] = useState('');
 
   const [settingsData, setSettingsData] = useState<SettingsData[]>([
     // API設定
@@ -93,26 +95,58 @@ export function DataManagement() {
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = async () => {
-    setIsSyncing(true);
-    try {
-      // 実際の実装では GAS バックエンドとの同期処理
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setConnection(prev => ({
-        ...prev,
-        lastSync: new Date().toISOString(),
-        status: 'CONNECTED'
-      }));
-      
+    if (!gasWebAppUrl) {
       toast({
-        title: "同期完了",
-        description: "スプレッドシートとの同期が完了しました"
+        title: "設定エラー",
+        description: "GAS WebApp URLを設定してください",
+        variant: "destructive"
       });
-    } catch (error) {
+      return;
+    }
+
+    setIsSyncing(true);
+    setConnection(prev => ({ ...prev, status: 'SYNCING' }));
+    
+    try {
+      // GAS WebApp API でデータ取得
+      const response = await fetch(`${gasWebAppUrl}?action=getSettings`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // スプレッドシートからのデータで更新
+        if (data.settings) {
+          setSettingsData(data.settings);
+        }
+        
+        setConnection(prev => ({
+          ...prev,
+          lastSync: new Date().toISOString(),
+          status: 'CONNECTED',
+          url: data.spreadsheetUrl || prev.url
+        }));
+        
+        toast({
+          title: "同期完了",
+          description: "Google スプレッドシートとの同期が完了しました"
+        });
+      } else {
+        throw new Error(data.error || '同期処理でエラーが発生しました');
+      }
+    } catch (error: any) {
       setConnection(prev => ({ ...prev, status: 'ERROR' }));
       toast({
         title: "同期エラー",
-        description: "スプレッドシートとの同期に失敗しました",
+        description: `スプレッドシートとの同期に失敗しました: ${error.message}`,
         variant: "destructive"
       });
     } finally {
@@ -138,7 +172,7 @@ export function DataManagement() {
     link.click();
   };
 
-  const handleAddSetting = () => {
+  const handleAddSetting = async () => {
     if (!newSetting.key || !newSetting.value) {
       toast({
         title: "入力エラー",
@@ -148,26 +182,65 @@ export function DataManagement() {
       return;
     }
 
-    const existingSetting = settingsData.find(s => s.key === newSetting.key);
-    if (existingSetting) {
-      // 更新
-      setSettingsData(prev => prev.map(s => 
-        s.key === newSetting.key ? { ...s, ...newSetting } : s
-      ));
+    if (!gasWebAppUrl) {
       toast({
-        title: "設定を更新しました",
-        description: `「${newSetting.key}」の値を更新しました`
+        title: "設定エラー",
+        description: "GAS WebApp URLを設定してください",
+        variant: "destructive"
       });
-    } else {
-      // 新規追加
-      setSettingsData(prev => [...prev, newSetting]);
-      toast({
-        title: "設定を追加しました",
-        description: `「${newSetting.key}」を新規作成しました`
-      });
+      return;
     }
 
-    setNewSetting({ key: '', value: '', category: 'システム設定', description: '' });
+    try {
+      // GAS WebApp API で設定保存
+      const response = await fetch(gasWebAppUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'saveSetting',
+          setting: newSetting
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        const existingSetting = settingsData.find(s => s.key === newSetting.key);
+        if (existingSetting) {
+          // 更新
+          setSettingsData(prev => prev.map(s => 
+            s.key === newSetting.key ? { ...s, ...newSetting } : s
+          ));
+          toast({
+            title: "設定を更新しました",
+            description: `「${newSetting.key}」の値をスプレッドシートに保存しました`
+          });
+        } else {
+          // 新規追加
+          setSettingsData(prev => [...prev, newSetting]);
+          toast({
+            title: "設定を追加しました",
+            description: `「${newSetting.key}」をスプレッドシートに保存しました`
+          });
+        }
+
+        setNewSetting({ key: '', value: '', category: 'システム設定', description: '' });
+      } else {
+        throw new Error(data.error || '設定の保存に失敗しました');
+      }
+    } catch (error: any) {
+      toast({
+        title: "保存エラー",
+        description: `設定の保存に失敗しました: ${error.message}`,
+        variant: "destructive"
+      });
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -260,8 +333,21 @@ export function DataManagement() {
         <CardContent>
           <div className="space-y-4">
             <div>
+              <Label>GAS WebApp URL</Label>
+              <Input 
+                value={gasWebAppUrl} 
+                onChange={(e) => setGasWebAppUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+              />
+            </div>
+            
+            <div>
               <Label>スプレッドシートURL</Label>
-              <Input value={connection.url} readOnly />
+              <Input 
+                value={connection.url} 
+                readOnly 
+                placeholder="同期後に自動設定されます"
+              />
             </div>
             
             <div className="grid gap-4 md:grid-cols-2">
@@ -288,7 +374,16 @@ export function DataManagement() {
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
-                  スプレッドシートとの接続に問題があります。GASのデプロイ状況とアクセス権限を確認してください。
+                  Google スプレッドシートとの接続に問題があります。GAS WebApp URLを正しく設定し、GASのデプロイ状況とアクセス権限を確認してください。
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {!gasWebAppUrl && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  GAS WebApp URLを設定すると、Google スプレッドシートとの双方向同期が有効になります。
                 </AlertDescription>
               </Alert>
             )}
