@@ -7,6 +7,8 @@ import Index from "./pages/Index";
 import Rules from "./pages/Rules";
 import Settings from "./pages/Settings";
 import Personas from "./pages/Personas";
+import Integration from "./pages/Integration";
+import Data from "./pages/Data";
 import Logs from "./pages/Logs";
 import Status from "./pages/Status";
 import NotFound from "./pages/NotFound";
@@ -24,6 +26,8 @@ const App = () => (
           <Route path="/rules" element={<Rules />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/personas" element={<Personas />} />
+          <Route path="/integration" element={<Integration />} />
+          <Route path="/data" element={<Data />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/status" element={<Status />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
