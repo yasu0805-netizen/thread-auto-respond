@@ -1,1 +1,10 @@
 project_id = "rxojguebwgbozkobeitm"
+
+[functions.threads-webhook]
+verify_jwt = false
+
+[functions.data-management]
+verify_jwt = true
+
+[functions.ai-reply-generator]
+verify_jwt = true
